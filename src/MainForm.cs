@@ -233,6 +233,11 @@ public sealed class MainForm : Form
         catch (OperationCanceledException)
         {
         }
+        catch (Exception ex) when (ex is KeyNotFoundException or InvalidOperationException or System.Text.Json.JsonException)
+        {
+            status.SetStatus($"Gagal mencari: format data dari {provider.Name} tidak dikenali. Coba perbarui LiteWall.", true);
+            if (flow.Controls.Count == 0) SetEmpty($"Data dari {provider.Name} tidak bisa dibaca.");
+        }
         catch (Exception ex)
         {
             status.SetStatus("Gagal mencari: " + ex.Message, true);

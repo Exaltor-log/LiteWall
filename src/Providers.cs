@@ -133,32 +133,45 @@ public sealed class PixabayProvider : IProvider
         using var doc = await Http.GetJsonAsync(req, ct);
 
         var list = new List<WallItem>();
-        foreach (var hit in doc.RootElement.GetProperty("hits").EnumerateArray())
-        {
-            string id = hit.GetProperty("id").GetInt64().ToString();
-            string pic = hit.GetProperty("picture_id").GetString();
-            string credit = hit.TryGetProperty("user", out var u) ? (u.GetString() ?? "") : "";
-            var videos = hit.GetProperty("videos");
+        if (!doc.RootElement.TryGetProperty("hits", out var hits) || hits.ValueKind != JsonValueKind.Array)
+            return list;
 
-            string bestUrl = null;
+        foreach (var hit in hits.EnumerateArray())
+        {
+            // Lewati entri yang tidak lengkap, jangan gagalkan seluruh pencarian.
+            if (!hit.TryGetProperty("id", out var idEl) || !hit.TryGetProperty("videos", out var videos)) continue;
+            string id = idEl.ValueKind == JsonValueKind.Number ? idEl.GetInt64().ToString() : idEl.ToString();
+            string credit = hit.TryGetProperty("user", out var u) && u.ValueKind == JsonValueKind.String
+                ? u.GetString() ?? "" : "";
+
+            string bestUrl = null, thumb = null;
             int bestW = int.MaxValue, bestH = 0;
             foreach (var name in Variants)
             {
-                if (!videos.TryGetProperty(name, out var v)) continue;
-                string link = v.GetProperty("url").GetString();
-                int w = v.GetProperty("width").GetInt32();
-                int h = v.GetProperty("height").GetInt32();
+                if (!videos.TryGetProperty(name, out var v) || v.ValueKind != JsonValueKind.Object) continue;
+                // Thumbnail terkecil sudah cukup untuk kartu galeri dan hemat unduhan.
+                thumb ??= Str(v, "thumbnail");
+                string link = Str(v, "url");
+                int w = Int(v, "width"), h = Int(v, "height");
                 if (string.IsNullOrEmpty(link) || w < minW) continue;
                 if (w < bestW) { bestW = w; bestH = h; bestUrl = link; }
             }
+
+            // API lama memakai picture_id, API baru memakai field thumbnail per ukuran video.
+            if (string.IsNullOrEmpty(thumb) && Str(hit, "picture_id") is { Length: > 0 } pic)
+                thumb = $"https://i.vimeocdn.com/video/{pic}_640x360.jpg";
+
             if (bestUrl != null)
-            {
-                string thumb = $"https://i.vimeocdn.com/video/{pic}_640x360.jpg";
-                list.Add(new WallItem(Name, id, thumb, bestUrl, bestW, bestH, true, credit));
-            }
+                list.Add(new WallItem(Name, id, thumb ?? "", bestUrl, bestW, bestH, true, credit));
         }
         return list;
     }
+
+    static string Str(JsonElement e, string name) =>
+        e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+
+    static int Int(JsonElement e, string name) =>
+        e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out int n) ? n : 0;
 }
 
 static class Downloader
