@@ -1,0 +1,9 @@
+bin/
+obj/
+publish/
+native/
+mpvdev/
+*.7z
+*.zip
+.vs/
+*.user
