@@ -3,17 +3,27 @@ namespace LiteWall;
 public sealed class MainForm : Form
 {
     readonly TrayApp app;
-    readonly TextBox txtQuery = new() { Width = 220, PlaceholderText = "Cari wallpaper (kosong = populer)" };
-    readonly ComboBox cmbSource = new() { Width = 150, DropDownStyle = ComboBoxStyle.DropDownList };
-    readonly ComboBox cmbRes = new() { Width = 150, DropDownStyle = ComboBoxStyle.DropDownList };
-    readonly Button btnSearch = new() { Text = "Cari", AutoSize = true };
-    readonly Button btnLocal = new() { Text = "File sendiri...", AutoSize = true };
-    readonly Button btnSettings = new() { Text = "Pengaturan", AutoSize = true };
-    readonly Button btnMore = new() { Text = "Muat lebih banyak", AutoSize = true, Visible = false };
-    readonly FlowLayoutPanel flow = new() { Dock = DockStyle.Fill, AutoScroll = true };
-    readonly Label status = new() { Dock = DockStyle.Bottom, Height = 24, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(8, 0, 0, 0) };
-    readonly ToolTip tip = new();
+    readonly InputBox search;
+    readonly TextBox txtQuery;
+    readonly DarkComboBox cmbSource;
+    readonly DarkComboBox cmbRes;
+    readonly ModernButton btnSearch = new("Cari", true);
+    readonly ModernButton btnLocal = new("File sendiri...");
+    readonly ModernButton btnSettings = new("Pengaturan");
+    readonly ModernButton btnMore = new("Muat lebih banyak");
+    readonly Panel moreBar = new() { Dock = DockStyle.Bottom, BackColor = Theme.Bg, Visible = false };
+    readonly FlowLayoutPanel flow = new() { Dock = DockStyle.Fill, AutoScroll = true, BackColor = Theme.Bg };
+    readonly Label lblEmpty = new()
+    {
+        Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, Visible = false,
+        BackColor = Theme.Bg, ForeColor = Theme.Muted, Font = Theme.Heading, UseMnemonic = false
+    };
+    readonly StatusBar status = new() { Dock = DockStyle.Bottom };
+    readonly ToolTip tip = new() { OwnerDraw = true };
+    readonly ToolTip headerTip = new() { OwnerDraw = true };
     readonly SemaphoreSlim thumbGate = new(4);
+    readonly Size cardSize;
+    readonly Padding cardMargin;
 
     CancellationTokenSource cts;
     int page = 1;
@@ -24,13 +34,24 @@ public sealed class MainForm : Form
     {
         this.app = app;
         Text = "LiteWall";
-        Size = new Size(1040, 700);
+        Theme.ApplyWindow(this);
+        Size = new Size(Px(1180), Px(760));
+        MinimumSize = new Size(Px(900), Px(520));
         StartPosition = FormStartPosition.CenterScreen;
 
+        cardSize = new Size(Px(256), Px(144));
+        cardMargin = new Padding(Px(6));
+
+        search = new InputBox(Px(240), "");
+        txtQuery = search.Box;
+        txtQuery.PlaceholderText = "Cari wallpaper (kosong = populer)";
+
+        cmbSource = new DarkComboBox(Px(170));
         cmbSource.Items.AddRange(new object[] { "Wallhaven (gambar)", "Pexels (video)", "Pixabay (video)" });
         cmbSource.SelectedIndex = 0;
 
         var screen = Screen.PrimaryScreen.Bounds;
+        cmbRes = new DarkComboBox(Px(190));
         cmbRes.Items.AddRange(new object[]
         {
             $"Otomatis ({screen.Width}x{screen.Height})", "Full HD (1920x1080)", "2K (2560x1440)", "4K (3840x2160)"
@@ -42,18 +63,53 @@ public sealed class MainForm : Form
             app.Settings.Save();
         };
 
-        var top = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 44, Padding = new Padding(6), WrapContents = false };
-        top.Controls.AddRange(new Control[] { txtQuery, cmbSource, cmbRes, btnSearch, btnLocal, btnSettings });
+        // Bilah atas: logo, kotak cari (melebar), filter, dan tombol.
+        var header = new TableLayoutPanel
+        {
+            Dock = DockStyle.Top, Height = Px(64), BackColor = Theme.Surface,
+            ColumnCount = 7, RowCount = 1, Margin = Padding.Empty,
+            Padding = new Padding(Px(16), 0, Px(12), 0)
+        };
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        for (int i = 0; i < 5; i++) header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        header.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        header.Paint += (_, e) =>
+        {
+            using var pen = new Pen(Theme.Border);
+            e.Graphics.DrawLine(pen, 0, header.Height - 1, header.Width, header.Height - 1);
+        };
 
-        var bottom = new FlowLayoutPanel { Dock = DockStyle.Bottom, Height = 40, Padding = new Padding(6) };
-        bottom.Controls.Add(btnMore);
+        var logo = new LogoLabel { BackColor = Theme.Surface, Anchor = AnchorStyles.Left };
+        search.Anchor = AnchorStyles.Left | AnchorStyles.Right;
+        Control[] row = { logo, search, cmbSource, cmbRes, btnSearch, btnLocal, btnSettings };
+        for (int i = 0; i < row.Length; i++)
+        {
+            if (i != 1) row[i].Anchor = AnchorStyles.Left;
+            header.Controls.Add(row[i], i, 0);
+        }
 
+        StyleTip(tip);
+        StyleTip(headerTip);
+        headerTip.SetToolTip(btnLocal, "Pakai video atau gambar dari komputer ini");
+        headerTip.SetToolTip(btnSettings, "FPS, jeda otomatis, dan API key");
+
+        // Grid thumbnail. Padding kiri kanan diatur supaya kolom selalu di tengah.
+        Theme.DarkScrollBars(flow);
+        flow.Resize += (_, _) => UpdateGridPadding();
+
+        moreBar.Height = Px(60);
+        moreBar.Controls.Add(btnMore);
+        moreBar.Layout += (_, _) => btnMore.Location = new Point(
+            (moreBar.Width - btnMore.Width) / 2, (moreBar.Height - btnMore.Height) / 2);
+
+        Controls.Add(lblEmpty);
         Controls.Add(flow);
-        Controls.Add(bottom);
+        Controls.Add(moreBar);
         Controls.Add(status);
-        Controls.Add(top);
+        Controls.Add(header);
 
-        status.Text = "Sumber: Wallhaven, Pexels, Pixabay. Klik gambar untuk memasang sebagai wallpaper.";
+        status.SetStatus("Sumber: Wallhaven, Pexels, Pixabay. Klik gambar untuk memasang sebagai wallpaper.");
 
         btnSearch.Click += async (_, _) => await SearchAsync(true);
         btnMore.Click += async (_, _) => await SearchAsync(false);
@@ -69,6 +125,45 @@ public sealed class MainForm : Form
             if (Visible && flow.Controls.Count == 0) await SearchAsync(true);
         };
     }
+
+    int Px(int logical) => LogicalToDeviceUnits(logical);
+
+    void StyleTip(ToolTip t)
+    {
+        t.Popup += (_, e) =>
+        {
+            var sz = TextRenderer.MeasureText(t.GetToolTip(e.AssociatedControl), Theme.Small);
+            e.ToolTipSize = new Size(sz.Width + Px(18), sz.Height + Px(12));
+        };
+        t.Draw += (_, e) =>
+        {
+            var g = e.Graphics;
+            using (var br = new SolidBrush(Theme.Input)) g.FillRectangle(br, e.Bounds);
+            using (var pen = new Pen(Theme.Border)) g.DrawRectangle(pen, 0, 0, e.Bounds.Width - 1, e.Bounds.Height - 1);
+            var r = Rectangle.Inflate(e.Bounds, -Px(9), -Px(6));
+            TextRenderer.DrawText(g, e.ToolTipText, Theme.Small, r, Theme.Text, Theme.Input, TextFormatFlags.NoPrefix);
+        };
+    }
+
+    void UpdateGridPadding()
+    {
+        int basePad = Px(14);
+        int cell = cardSize.Width + cardMargin.Horizontal;
+        // Lebar scrollbar selalu disisihkan supaya jumlah kolom tidak berubah saat scrollbar muncul.
+        int avail = flow.Width - SystemInformation.VerticalScrollBarWidth - basePad * 2;
+        int cols = Math.Max(1, avail / cell);
+        int side = basePad + Math.Max(0, (avail - cols * cell) / 2);
+        var p = new Padding(side, basePad, side, basePad);
+        if (flow.Padding != p) flow.Padding = p;
+    }
+
+    void SetEmpty(string message)
+    {
+        lblEmpty.Text = message ?? "";
+        lblEmpty.Visible = message != null;
+    }
+
+    void ShowMore(bool visible) => moreBar.Visible = visible;
 
     (int w, int h) Tier()
     {
@@ -105,81 +200,81 @@ public sealed class MainForm : Form
         string key = cmbSource.SelectedIndex switch { 1 => s.PexelsKey, 2 => s.PixabayKey, _ => "x" };
         if (provider.NeedsKey && string.IsNullOrWhiteSpace(key))
         {
-            status.Text = $"Isi API key {provider.Name} dulu di Pengaturan.";
-            btnMore.Visible = false;
+            string msg = $"Isi API key {provider.Name} dulu di Pengaturan.";
+            status.SetStatus(msg, true);
+            if (flow.Controls.Count == 0) SetEmpty(msg);
+            ShowMore(false);
             return;
         }
 
         var (w, h) = Tier();
-        status.Text = "Mencari...";
+        status.SetStatus("Mencari...");
+        if (flow.Controls.Count == 0) SetEmpty("Mencari...");
+        btnMore.Enabled = false;
         try
         {
             var items = await provider.SearchAsync(txtQuery.Text.Trim(), page, w, h, ct);
+            flow.SuspendLayout();
             foreach (var it in items) AddCard(it, ct);
-            btnMore.Visible = items.Count > 0;
-            status.Text = items.Count > 0
-                ? $"{flow.Controls.Count} hasil dari {provider.Name}, minimal {w}x{h}"
-                : $"Tidak ada hasil dari {provider.Name} untuk resolusi minimal {w}x{h}";
+            flow.ResumeLayout();
+            ShowMore(items.Count > 0);
+            if (items.Count > 0)
+            {
+                SetEmpty(null);
+                status.SetStatus($"{flow.Controls.Count} hasil dari {provider.Name}, minimal {w}x{h}");
+            }
+            else
+            {
+                string msg = $"Tidak ada hasil dari {provider.Name} untuk resolusi minimal {w}x{h}";
+                status.SetStatus(msg);
+                if (flow.Controls.Count == 0) SetEmpty(msg);
+            }
         }
         catch (OperationCanceledException)
         {
         }
         catch (Exception ex)
         {
-            status.Text = "Gagal mencari: " + ex.Message;
+            status.SetStatus("Gagal mencari: " + ex.Message, true);
+            if (flow.Controls.Count == 0) SetEmpty("Gagal mencari. Periksa koneksi atau API key.");
+        }
+        finally
+        {
+            btnMore.Enabled = true;
         }
     }
 
     void AddCard(WallItem it, CancellationToken ct)
     {
-        var pb = new PictureBox
-        {
-            Width = 240, Height = 135,
-            SizeMode = PictureBoxSizeMode.Zoom,
-            BackColor = Color.FromArgb(32, 32, 32),
-            Margin = new Padding(6),
-            Cursor = Cursors.Hand
-        };
-        var lb = new Label
-        {
-            Text = $"{it.Width}x{it.Height}" + (it.IsVideo ? "  video" : ""),
-            ForeColor = Color.White,
-            BackColor = Color.FromArgb(20, 20, 20),
-            Dock = DockStyle.Bottom,
-            Height = 18,
-            Font = new Font(Font.FontFamily, 8f),
-            Cursor = Cursors.Hand
-        };
-        pb.Controls.Add(lb);
+        var card = new ThumbCard(it, cardSize, cardMargin);
 
         string credit = string.IsNullOrEmpty(it.Credit) ? "" : $"\nOleh: {it.Credit}";
-        tip.SetToolTip(pb, $"{it.Source}{credit}");
+        tip.SetToolTip(card, $"{it.Source}{credit}");
 
-        async void OnClick(object s, EventArgs e) => await ApplyAsync(it);
-        pb.Click += OnClick;
-        lb.Click += OnClick;
+        card.Click += async (_, _) => await ApplyAsync(it);
 
-        flow.Controls.Add(pb);
-        _ = LoadThumbAsync(pb, it.ThumbUrl, ct);
+        flow.Controls.Add(card);
+        _ = LoadThumbAsync(card, it.ThumbUrl, ct);
     }
 
-    async Task LoadThumbAsync(PictureBox pb, string url, CancellationToken ct)
+    async Task LoadThumbAsync(ThumbCard card, string url, CancellationToken ct)
     {
         bool acquired = false;
+        var size = card.ClientSize;
         try
         {
             await thumbGate.WaitAsync(ct);
             acquired = true;
             var bytes = await Http.Client.GetByteArrayAsync(url, ct);
-            using var ms = new MemoryStream(bytes);
-            using var tmp = Image.FromStream(ms);
-            var bmp = new Bitmap(tmp);
-            if (pb.IsDisposed) bmp.Dispose();
-            else pb.Image = bmp;
+            // Decode dan perkecil di thread latar supaya UI tidak tersendat.
+            var bmp = await Task.Run(() => ThumbCard.Render(bytes, size), ct);
+            if (card.IsDisposed) bmp.Dispose();
+            else card.SetThumb(bmp);
         }
         catch
         {
-            // thumbnail gagal: biarkan kotak kosong
+            // thumbnail gagal: tampilkan keterangan di kartu
+            if (!card.IsDisposed && !ct.IsCancellationRequested) card.SetFailed();
         }
         finally
         {
@@ -189,17 +284,17 @@ public sealed class MainForm : Form
 
     async Task ApplyAsync(WallItem it)
     {
-        status.Text = "Mengunduh...";
+        status.SetStatus("Mengunduh...", false, 0);
         try
         {
-            var prog = new Progress<int>(p => status.Text = $"Mengunduh... {p}%");
+            var prog = new Progress<int>(p => status.SetStatus($"Mengunduh... {p}%", false, p));
             string path = await Downloader.DownloadAsync(it, prog, CancellationToken.None);
             app.SetWallpaper(path);
-            status.Text = $"Wallpaper terpasang ({it.Source}, {it.Width}x{it.Height})";
+            status.SetStatus($"Wallpaper terpasang ({it.Source}, {it.Width}x{it.Height})");
         }
         catch (Exception ex)
         {
-            status.Text = "Gagal: " + ex.Message;
+            status.SetStatus("Gagal: " + ex.Message, true);
         }
     }
 
@@ -213,7 +308,7 @@ public sealed class MainForm : Form
         if (dlg.ShowDialog(this) == DialogResult.OK)
         {
             app.SetWallpaper(dlg.FileName);
-            status.Text = "Wallpaper terpasang: " + Path.GetFileName(dlg.FileName);
+            status.SetStatus("Wallpaper terpasang: " + Path.GetFileName(dlg.FileName));
         }
     }
 
@@ -223,12 +318,12 @@ public sealed class MainForm : Form
         flow.SuspendLayout();
         foreach (Control c in flow.Controls.Cast<Control>().ToList())
         {
-            if (c is PictureBox pb) pb.Image?.Dispose();
+            tip.SetToolTip(c, null);
             flow.Controls.Remove(c);
-            c.Dispose();
+            c.Dispose(); // ThumbCard ikut membuang bitmap-nya
         }
         flow.ResumeLayout();
-        btnMore.Visible = false;
+        ShowMore(false);
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
@@ -238,6 +333,7 @@ public sealed class MainForm : Form
             e.Cancel = true;
             cts?.Cancel();
             ClearGallery();
+            SetEmpty(null);
             Hide();
             GC.Collect();
             return;

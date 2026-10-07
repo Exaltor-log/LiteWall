@@ -9,6 +9,7 @@ Aplikasi wallpaper animasi untuk Windows yang ringan. Alternatif sederhana untuk
 - Filter resolusi otomatis sesuai layar, atau pilih Full HD, 2K, 4K.
 - Batas FPS bebas dari 24 sampai 120 (slider di Pengaturan).
 - Jeda otomatis saat aplikasi layar penuh, jendela maksimal (opsional), layar terkunci, dan mode baterai.
+- Tampilan gelap modern: grid thumbnail rapi di tengah, sakelar dan slider yang jelas.
 - Berjalan di tray. Jendela galeri melepas semua thumbnail dari memori saat ditutup.
 - Bisa memakai file video atau gambar sendiri.
 

@@ -12,6 +12,8 @@
     <InvariantGlobalization>true</InvariantGlobalization>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- Supaya dotnet build juga jalan di Linux/macOS (misalnya untuk cek kompilasi di CI) -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
 
   <!-- libmpv-2.dll diunduh oleh workflow GitHub Actions ke folder native/ -->
